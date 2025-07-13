@@ -1,6 +1,68 @@
-
 <!DOCTYPE html>
-<html lang="en">            box-shadow: none;
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR Hand Tracking Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .vr-button {
+            background: linear-gradient(45deg, #ff6b6b, #ffa500);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .vr-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+        }
+
+        .vr-button:active {
+            transform: translateY(0);
+        }
+
+        .vr-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .status {
@@ -166,10 +228,21 @@
         }
         
         function enterVR() {
+            updateStatus('Starting VR session...', 'info');
+            vrButton.disabled = true;
+            
             if ('xr' in navigator) {
+                // Try with minimal features first
                 navigator.xr.requestSession('immersive-vr', {
-                    optionalFeatures: ['hand-tracking']
-                }).then(onSessionStarted).catch(onSessionError);
+                    requiredFeatures: ['local-floor'],
+                    optionalFeatures: ['hand-tracking', 'bounded-floor']
+                }).then(onSessionStarted).catch((error) => {
+                    console.log('First attempt failed, trying with basic features:', error);
+                    // Fallback to basic VR without hand tracking
+                    navigator.xr.requestSession('immersive-vr').then(onSessionStarted).catch(onSessionError);
+                });
+            } else {
+                onSessionError(new Error('WebXR not supported'));
             }
         }
         
@@ -178,15 +251,48 @@
             isVRActive = true;
             vrButton.textContent = 'Exit VR Mode';
             vrButton.onclick = exitVR;
+            vrButton.disabled = false;
             
             renderer.xr.setSession(session);
             
-            // Set up hand tracking
+            // Add controllers for hand tracking
+            const controller1 = renderer.xr.getController(0);
+            const controller2 = renderer.xr.getController(1);
+            
+            // Create yellow circles for controllers
+            const handGeometry = new THREE.CircleGeometry(0.05, 32);
+            const handMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffff00,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.9
+            });
+            
+            const hand1 = new THREE.Mesh(handGeometry, handMaterial);
+            const hand2 = new THREE.Mesh(handGeometry, handMaterial);
+            
+            controller1.add(hand1);
+            controller2.add(hand2);
+            
+            scene.add(controller1);
+            scene.add(controller2);
+            
+            handControllers = [controller1, controller2];
+            handMeshes = [hand1, hand2];
+            
+            // Set up hand tracking if available
             if (session.inputSources) {
                 session.addEventListener('inputsourceschange', onInputSourcesChange);
             }
             
             session.addEventListener('end', onSessionEnded);
+            
+            // Add a timeout to prevent infinite loading
+            setTimeout(() => {
+                if (isVRActive) {
+                    updateStatus('VR session active. Controllers should be visible as yellow circles.', 'success');
+                }
+            }, 2000);
         }
         
         function onInputSourcesChange(event) {
@@ -211,18 +317,22 @@
             isVRActive = false;
             vrButton.textContent = 'Enter VR Mode';
             vrButton.onclick = enterVR;
+            vrButton.disabled = false;
             
-            // Clean up hand meshes
-            handMeshes.forEach(mesh => {
-                if (mesh) {
-                    scene.remove(mesh);
+            // Clean up controllers and hand meshes
+            handControllers.forEach(controller => {
+                if (controller) {
+                    scene.remove(controller);
                 }
             });
+            handControllers = [];
             handMeshes = [];
         }
         
         function onSessionError(error) {
-            updateStatus(`VR session error: ${error.message}`, 'error');
+            updateStatus(`VR session error: ${error.message}. Try refreshing the page.`, 'error');
+            vrButton.disabled = false;
+            vrButton.textContent = 'Enter VR Mode';
             console.error('VR session error:', error);
         }
         
@@ -278,3 +388,12 @@
                     child.rotation.y += 0.01;
                 }
             });
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the app
+        init();
+    </script>
+</body>
+</html>
