@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR Hand Tracking Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .vr-button {
+            background: linear-gradient(45deg, #ff6b6b, #ffa500);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .vr-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+        }
+
+        .vr-button:active {
+            transform: translateY(0);
+        }
+
+        .vr-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            font-size: 1em;
+        }
+
+        .error {
+            background: rgba(255, 0, 0, 0.2);
+            color: #ffcccb;
+        }
+
+        .success {
+            background: rgba(0, 255, 0, 0.2);
+            color: #90ee90;
+        }
+
+        .info {
+            background: rgba(0, 123, 255, 0.2);
+            color: #87ceeb;
+        }
+
+        #scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            font-size: 0.9em;
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="scene"></canvas>
+    
+    <div class="container">
+        <h1>🥽 VR Hand Tracking</h1>
+        <p>Experience yellow circle hand tracking in VR!</p>
+        
+        <button id="vrButton" class="vr-button">Enter VR Mode</button>
+        
+        <div id="status" class="status info">
+            Ready to enter VR. Make sure you're using a Meta Quest or compatible headset.
+        </div>
+        
+        <div class="instructions">
+            <p><strong>Instructions:</strong></p>
+            <p>• Put on your Meta Quest headset</p>
+            <p>• Click "Enter VR Mode" button</p>
+            <p>• Move your hands to see yellow circles tracking your movements</p>
+            <p>• Use hand gestures to interact with the virtual environment</p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, vrButton, statusDiv;
+        let handControllers = [];
+        let handMeshes = [];
+        let isVRActive = false;
+
+        function init() {
+            // Get DOM elements
+            vrButton = document.getElementById('vrButton');
+            statusDiv = document.getElementById('status');
+            
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 3);
+            
+            // Create renderer
+            const canvas = document.getElementById('scene');
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 10, 5);
+            scene.add(directionalLight);
+            
+            // Add a simple environment
+            addEnvironment();
+            
+            // Check WebXR support
+            if ('xr' in navigator) {
+                navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+                    if (supported) {
+                        updateStatus('VR supported! Click the button to enter VR mode.', 'success');
+                        vrButton.addEventListener('click', enterVR);
+                    } else {
+                        updateStatus('VR not supported on this device. Try using a Meta Quest browser.', 'error');
+                        vrButton.disabled = true;
+                    }
+                });
+            } else {
+                updateStatus('WebXR not available. Please use a compatible browser on Meta Quest.', 'error');
+                vrButton.disabled = true;
+            }
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start render loop
+            animate();
+        }
+        
+        function addEnvironment() {
+            // Add a simple floor
+            const floorGeometry = new THREE.PlaneGeometry(20, 20);
+            const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+            
+            // Add some floating cubes
+            for (let i = 0; i < 10; i++) {
+                const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+                const material = new THREE.MeshLambertMaterial({ 
+                    color: new THREE.Color().setHSL(Math.random(), 0.8, 0.6) 
+                });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(
+                    (Math.random() - 0.5) * 10,
+                    Math.random() * 3 + 1,
+                    (Math.random() - 0.5) * 10
+                );
+                cube.rotation.set(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI
+                );
+                scene.add(cube);
+            }
+        }
+        
+        function createHandMesh() {
+            const geometry = new THREE.CircleGeometry(0.05, 32);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xffff00,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8
+            });
+            return new THREE.Mesh(geometry, material);
+        }
+        
+        function enterVR() {
+            if ('xr' in navigator) {
+                navigator.xr.requestSession('immersive-vr', {
+                    optionalFeatures: ['hand-tracking']
+                }).then(onSessionStarted).catch(onSessionError);
+            }
+        }
+        
+        function onSessionStarted(session) {
+            updateStatus('VR session started! Move your hands to see yellow circles.', 'success');
+            isVRActive = true;
+            vrButton.textContent = 'Exit VR Mode';
+            vrButton.onclick = exitVR;
+            
+            renderer.xr.setSession(session);
+            
+            // Set up hand tracking
+            if (session.inputSources) {
+                session.addEventListener('inputsourceschange', onInputSourcesChange);
+            }
+            
+            session.addEventListener('end', onSessionEnded);
+        }
+        
+        function onInputSourcesChange(event) {
+            event.session.inputSources.forEach((inputSource, index) => {
+                if (inputSource.hand) {
+                    if (!handMeshes[index]) {
+                        handMeshes[index] = createHandMesh();
+                        scene.add(handMeshes[index]);
+                    }
+                }
+            });
+        }
+        
+        function exitVR() {
+            if (renderer.xr.getSession()) {
+                renderer.xr.getSession().end();
+            }
+        }
+        
+        function onSessionEnded() {
+            updateStatus('VR session ended. Click the button to enter VR again.', 'info');
+            isVRActive = false;
+            vrButton.textContent = 'Enter VR Mode';
+            vrButton.onclick = enterVR;
+            
+            // Clean up hand meshes
+            handMeshes.forEach(mesh => {
+                if (mesh) {
+                    scene.remove(mesh);
+                }
+            });
+            handMeshes = [];
+        }
+        
+        function onSessionError(error) {
+            updateStatus(`VR session error: ${error.message}`, 'error');
+            console.error('VR session error:', error);
+        }
+        
+        function updateStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+        
+        function render() {
+            // Update hand tracking
+            if (isVRActive && renderer.xr.getSession()) {
+                const session = renderer.xr.getSession();
+                if (session.inputSources) {
+                    session.inputSources.forEach((inputSource, index) => {
+                        if (inputSource.hand && handMeshes[index]) {
+                            // Get hand pose
+                            const referenceSpace = renderer.xr.getReferenceSpace();
+                            if (inputSource.gripSpace) {
+                                const pose = session.frame?.getPose(inputSource.gripSpace, referenceSpace);
+                                if (pose) {
+                                    const position = pose.transform.position;
+                                    const orientation = pose.transform.orientation;
+                                    
+                                    handMeshes[index].position.set(position.x, position.y, position.z);
+                                    handMeshes[index].quaternion.set(
+                                        orientation.x, 
+                                        orientation.y, 
+                                        orientation.z, 
+                                        orientation.w
+                                    );
+                                    handMeshes[index].visible = true;
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            
+            // Animate the floating cubes
+            scene.children.forEach(child => {
+                if (child.geometry && child.geometry.type === 'BoxGeometry') {
+                    child.rotation.x += 0.01;
+                    child.rotation.y += 0.01;
+                }
+            });
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the app
+        init();
+    </script>
+</body>
+</html>
