@@ -1,92 +1,71 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>The Quest Byttn</title>
-  <style>
-    body { margin: 0; background: black; overflow: hidden; }
-    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-family: sans-serif; z-index: 1; }
-  </style>
-</head>
-<body>
-  <div id="info">Initializing...</div>
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
-    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/VRButton.js';
-
-    let camera, scene, renderer;
-    let controllers = [];
-
-    init();
-    animate();
-
-    function init() {
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x000000);
-
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
-      camera.position.set(0, 1.6, 3);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true });
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>WebXR Controller Tracking</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/VRButton.js"></script>
+  </head>
+  <body>
+    <script>
+      let scene = new THREE.Scene();
+      let camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
+      let renderer = new THREE.WebGLRenderer({antialias:true});
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
       document.body.appendChild(VRButton.createButton(renderer));
 
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444);
-      light.position.set(0, 1, 0);
-      scene.add(light);
-
-      const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(4, 4),
-        new THREE.MeshStandardMaterial({ color: 0x111111 })
+      // Add a cube to manipulate
+      let cube = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2,0.2,0.2),
+        new THREE.MeshStandardMaterial({color:0x44aa88})
       );
-      floor.rotation.x = -Math.PI / 2;
-      scene.add(floor);
+      cube.position.set(0,1.5,-1);
+      scene.add(cube);
+      scene.add(new THREE.HemisphereLight(0x888877, 0x777788));
+      scene.add(new THREE.DirectionalLight(0xffffff, 0.5));
 
-      // Setup 2 controllers
-      const circleGeo = new THREE.CircleGeometry(0.05, 32);
-      const circleMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      // Controller group
+      let controllerGrip = renderer.xr.getControllerGrip(0);
+      controllerGrip.addEventListener('connected', (ev) => {
+        console.log('Controller connected:', ev.data);
+      });
+      controllerGrip.addEventListener('disconnected', () => {
+        console.log('Controller disconnected');
+      });
+      scene.add(controllerGrip);
 
-      for (let i = 0; i < 2; i++) {
-        const controller = renderer.xr.getController(i);
-        const circle = new THREE.Mesh(circleGeo, circleMat);
-        circle.rotation.x = -Math.PI / 2;
-        controller.add(circle);
-        controllers.push(controller);
-        scene.add(controller);
+      function animate() {
+        renderer.setAnimationLoop(render);
       }
 
-      window.addEventListener('resize', onWindowResize);
-      document.getElementById('info').innerText = 'Click the VR button to enter VR';
-    }
+      function render(timestamp, frame) {
+        if (frame) {
+          let session = renderer.xr.getSession();
+          for (let source of session.inputSources) {
+            let gp = source.gamepad;
+            if (!gp) continue;
 
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
+            // Track first button (trigger)
+            if (gp.buttons[0].pressed) {
+              cube.material.color.set(0xff4444);
+            } else {
+              cube.material.color.set(0x44aa88);
+            }
 
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      // Poll controller pose to ensure circles follow
-      if (renderer.xr.isPresenting && frame) {
-        const session = renderer.xr.getSession();
-        session.inputSources.forEach((src, idx) => {
-          if (src.targetRaySpace && controllers[idx]) {
-            const refSpace = renderer.xr.getReferenceSpace();
-            const pose = frame.getPose(src.targetRaySpace, refSpace);
-            if (pose) {
-              controllers[idx].matrix.fromArray(pose.transform.matrix);
-              controllers[idx].matrix.decompose(controllers[idx].position, controllers[idx].quaternion, controllers[idx].scale);
+            // Get pose
+            let refSpace = renderer.xr.getReferenceSpace();
+            let gripPose = frame.getPose(source.gripSpace, refSpace);
+            if (gripPose) {
+              cube.position.fromArray(gripPose.transform.position);
+              cube.quaternion.fromArray(gripPose.transform.orientation);
             }
           }
-        });
+        }
+        renderer.render(scene, camera);
       }
-      renderer.render(scene, camera);
-    }
-  </script>
-</body>
+      animate();
+    </script>
+  </body>
+</html>
