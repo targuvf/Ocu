@@ -1,22 +1,24 @@
-;
-      cursor: pointer;
-      z-index: 10;
-    }
-    canvas {
-      display: block;
-    }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>The Quest Byttn</title>
+  <style>
+    body { margin: 0; background: black; overflow: hidden; }
+    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-family: sans-serif; z-index: 1; }
   </style>
 </head>
 <body>
-  <button id="enterVR">VR ENTRR</button>
+  <div id="info">Initializing...</div>
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
-    import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/XRControllerModelFactory.js';
+    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/VRButton.js';
 
     let camera, scene, renderer;
-    let controller1, controller2;
+    let controllers = [];
 
     init();
+    animate();
 
     function init() {
       scene = new THREE.Scene();
@@ -29,6 +31,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
+      document.body.appendChild(VRButton.createButton(renderer));
 
       const light = new THREE.HemisphereLight(0xffffff, 0x444444);
       light.position.set(0, 1, 0);
@@ -41,38 +44,50 @@
       floor.rotation.x = -Math.PI / 2;
       scene.add(floor);
 
-      // Yellow controller circles
-      const controllerMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-      const geometry = new THREE.CircleGeometry(0.05, 32);
+      // Setup 2 controllers
+      const circleGeo = new THREE.CircleGeometry(0.05, 32);
+      const circleMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 
-      controller1 = renderer.xr.getController(0);
-      const circle1 = new THREE.Mesh(geometry, controllerMaterial);
-      circle1.rotation.x = -Math.PI / 2;
-      controller1.add(circle1);
-      scene.add(controller1);
+      for (let i = 0; i < 2; i++) {
+        const controller = renderer.xr.getController(i);
+        const circle = new THREE.Mesh(circleGeo, circleMat);
+        circle.rotation.x = -Math.PI / 2;
+        controller.add(circle);
+        controllers.push(controller);
+        scene.add(controller);
+      }
 
-      controller2 = renderer.xr.getController(1);
-      const circle2 = new THREE.Mesh(geometry, controllerMaterial);
-      circle2.rotation.x = -Math.PI / 2;
-      controller2.add(circle2);
-      scene.add(controller2);
+      window.addEventListener('resize', onWindowResize);
+      document.getElementById('info').innerText = 'Click the VR button to enter VR';
+    }
 
-      animate();
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     function animate() {
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-      });
+      renderer.setAnimationLoop(render);
     }
 
-    document.getElementById("enterVR").addEventListener("click", () => {
-      document.getElementById("enterVR").style.display = "none";
-      document.body.appendChild(VRButton.createButton(renderer));
-    });
-
-    // Add VRButton script
-    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/VRButton.js';
+    function render(timestamp, frame) {
+      // Poll controller pose to ensure circles follow
+      if (renderer.xr.isPresenting && frame) {
+        const session = renderer.xr.getSession();
+        session.inputSources.forEach((src, idx) => {
+          if (src.targetRaySpace && controllers[idx]) {
+            const refSpace = renderer.xr.getReferenceSpace();
+            const pose = frame.getPose(src.targetRaySpace, refSpace);
+            if (pose) {
+              controllers[idx].matrix.fromArray(pose.transform.matrix);
+              controllers[idx].matrix.decompose(controllers[idx].position, controllers[idx].quaternion, controllers[idx].scale);
+            }
+          }
+        });
+      }
+      renderer.render(scene, camera);
+    }
   </script>
 </body>
-</html
+</html>
